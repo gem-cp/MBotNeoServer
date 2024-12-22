@@ -1,5 +1,5 @@
-# config files
-config.yaml
+# src/config files
+src/config.yaml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
