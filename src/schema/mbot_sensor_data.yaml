@@ -1,0 +1,121 @@
+# YAML Schema for mBot Neo Sensor Data
+
+timestamp:
+  type: float
+  description: Timestamp of the sensor data reading (Unix epoch).
+
+distance_sensor:
+  type: object
+  description: Data from the ultrasonic distance sensor.
+  properties:
+    value:
+      type: integer
+      description: Distance measured in centimeters (cm).
+    unit:
+      type: string
+      enum: ["cm"]
+      description: Unit of the distance measurement.
+
+light_sensor:
+  type: object
+  description: Data from the dual light sensor.
+  properties:
+    left:
+      type: integer
+      description: Light intensity measured by the left sensor (0-1023).
+    right:
+      type: integer
+      description: Light intensity measured by the right sensor (0-1023).
+
+line_follower:
+  type: object
+  description: Data from the dual line follower sensor.
+  properties:
+    left:
+      type: integer
+      description: Reflectance value measured by the left sensor (0-1). 1 indicates white, 0 indicates black.
+    right:
+      type: integer
+      description: Reflectance value measured by the right sensor (0-1). 1 indicates white, 0 indicates black.
+
+sound_sensor:
+  type: object
+  description: Data from the sound sensor.
+  properties:
+    intensity:
+      type: integer
+      description: Sound intensity level (0-1023).
+
+imu:
+  type: object
+  description: Data from the Inertial Measurement Unit (IMU).
+  properties:
+    accelerometer:
+      type: object
+      description: Accelerometer data.
+      properties:
+        x:
+          type: float
+          description: Acceleration along the x-axis (in g).
+        y:
+          type: float
+          description: Acceleration along the y-axis (in g).
+        z:
+          type: float
+          description: Acceleration along the z-axis (in g).
+    gyroscope:
+      type: object
+      description: Gyroscope data.
+      properties:
+        pitch:
+          type: float
+          description: Rotation around the y-axis (in degrees/second).
+        roll:
+          type: float
+          description: Rotation around the x-axis (in degrees/second).
+        yaw:
+          type: float
+          description: Rotation around the z-axis (in degrees/second).
+
+rgb_leds:
+  type: object
+  description: Status of the RGB LEDs.
+  properties:
+    left:
+      type: object
+      description: Status of the left RGB LED.
+      properties:
+        red:
+          type: integer
+          minimum: 0
+          maximum: 255
+          description: Red component (0-255).
+        green:
+          type: integer
+          minimum: 0
+          maximum: 255
+          description: Green component (0-255).
+        blue:
+          type: integer
+          minimum: 0
+          maximum: 255
+          description: Blue component (0-255).
+    right:
+      type: object
+      description: Status of the right RGB LED.
+      properties:
+        red:
+          type: integer
+          minimum: 0
+          maximum: 255
+          description: Red component (0-255).
+        green:
+          type: integer
+          minimum: 0
+          maximum: 255
+          description: Green component (0-255).
+        blue:
+          type: integer
+          minimum: 0
+          maximum: 255
+          description: Blue component (0-255).
