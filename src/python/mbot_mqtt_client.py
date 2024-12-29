@@ -10,8 +10,9 @@ mqtt_connected = False  # Track MQTT connection status
 
 @event.start
 def on_start():
-    cyberpi.console.print("Press > to start.")
+    turn_off_quad_rgb()
     cyberpi.led.show('black black black black black')
+    cyberpi.console.print("Press > to start.")
     # No need for an explicit main loop with @event.start
 
 @event.is_press('b')
@@ -61,7 +62,7 @@ def connect_to_wifi(ssid, password):
     while not cyberpi.wifi.is_connect():
         time.sleep(0.1)
         time_waited += 0.1
-        if time_waited > 5.0:
+        if time_waited > 10.0:
             cyberpi.console.println("Wi-Fi connection failed")
             cyberpi.led.on(200, 0, 0, id=3)
             return False
@@ -79,7 +80,7 @@ def start_ultrasonic_publisher():
         if mqtt_connected:
             distance = mbuild.ultrasonic2.get(1)  # Replace '1' with the correct port number
             cyberpi.mqtt.publish_message("mBot/Ultrasonic", str(distance))
-            cyberpi.console.print("us:%d" % distance)
+            cyberpi.console.println("us:%d" % distance)
         else:
             cyberpi.console.println("MQTT connection lost.")
         time.sleep(1.0)
@@ -122,3 +123,10 @@ def is_btn_press_a():
     cyberpi.led.show('black black black black black')
     cyberpi.wifi.disconnect()
     cyberpi.console.print("Wi-Fi disconnected.")
+    
+
+def turn_off_quad_rgb():
+    """Turns off all LEDs on the quad RGB sensor."""
+    # Set the RGB values for each LED to black (0, 0, 0)
+    mbuild.quad_rgb_sensor.close_led(1)
+    print("Quad RGB sensor LEDs turned off.")
