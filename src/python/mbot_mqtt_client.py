@@ -5,7 +5,6 @@ import cyberpi
 import time
 import mbuild
 import random
-import network
 
 # Global flag to stop tasks
 ultrasonic_publishing_enabled = False
@@ -141,8 +140,3 @@ def is_btn_press_a():
     cyberpi.led.on(0, 0, 50, id=3)
 
 
-def turn_off_quad_rgb():
-    """Turns off all LEDs on the quad RGB sensor."""
-    # Set the RGB values for each LED to black (0, 0, 0)
-    mbuild.quad_rgb_sensor.close_led(1)
-    print("Quad RGB sensor LEDs turned off.")
