@@ -1,3 +1,19 @@
+# The code scans for Makeblock devices and connects to the first one found.
+# It then reads keyboard input to control the mBot Neo. The control logic is based
+# on the WASD keys for forward, backward, left, and right movements, respectively.
+# Pressing 'q' quits the program. The motor speeds are set to 180 units for full
+# speed in either direction. The build_joystick_command function constructs the
+# command packet to control the mBot Neo's motors. The process_key_input function
+# maps the WASD keys to motor speeds. The main function loads the device address
+# from a configuration file, scans for Makeblock devices, and connects to the mBot
+# Neo for control. If the device address is found in the configuration file, it
+# attempts to connect directly to that device. If the device is not found, it
+# saves the address of the discovered device to the configuration file for future
+# use. The asyncio.run(main()) call starts the main coroutine, which handles the
+# connection and control logic. The program can be interrupted by the user with a
+# keyboard interrupt (Ctrl+C).
+# The code uses the Bleak library to interact with Bluetooth Low Energy (BLE)
+
 import asyncio
 import sys
 import termios
@@ -5,157 +21,152 @@ import tty
 from bleak import BleakScanner, BleakClient
 from bleak.backends.device import BLEDevice
 import struct
+import yaml
+import os
+import logging
 
-known_device_address = None  # Hier kann eine gespeicherte Adresse eingefügt werden
-MBOT_CAR_CONTROLLER = 40 #Type des Gerätes, welches angesteuert wird
+# Logging configuration
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
+CONFIG_FILE = "mbot_config.yaml"
+MBOT_CAR_CONTROLLER = 0x02  # Device ID for mBot Neo motor control (tentative, verify from docs if needed)
+MOTOR_MOVE_COMMAND = 0x05 # Command for controlling multiple motors
+
+# Command prefixes and suffixes
+PREFIX = b'\xff\x55'
+SUFFIX = b'\x0d\x0a'
+
+command_index = 0  # Global index counter
 
 async def scan_makeblock_devices():
-    """Scans for Bluetooth LE devices with names starting with 'Makeblock' and returns the first device found."""
+    """Scans for Bluetooth LE devices with names starting with 'Makeblock'."""
     devices = await BleakScanner.discover()
     for d in devices:
         if d.name and d.name.startswith("Makeblock"):
-            print("Found Makeblock Device:")
-            print(f" Address: {d.address}")
-            print(f" Name: {d.name}")
-            print(f" Details: {d.details}")  # Platform-specific details
-            print(f" Advertisement Data: {d.metadata}")  # Replaced deprecated metadata
-            print("-" * 20)
+            logging.info(f"Found Makeblock Device: {d.name}, Address: {d.address}")
             return d
+    logging.warning("No Makeblock devices found.")
     return None
-
 
 def get_char():
     """Gets a single character from standard input."""
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
     try:
-        tty.setraw(sys.stdin.fileno())
-        ch = sys.stdin.read(1)
+        tty.setraw(fd)
+        return sys.stdin.read(1)
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-    return ch
-
 
 def build_joystick_command(left_speed: int, right_speed: int) -> bytearray:
-    """Builds the command to control the mBot motors."""
-    cmd = bytearray()
-    cmd.extend(b'\xff\x55')
-    cmd.append(8)  # length of data, 8 = 2x short
-    cmd.append(0)
-    cmd.append(2) # action
-    cmd.append(MBOT_CAR_CONTROLLER) # device type
-    cmd.extend(struct.pack("<h", left_speed)) #left motor
-    cmd.extend(struct.pack("<h", right_speed)) #right motor
-    cmd.append(10)  # '\n'
-    return cmd
+    """Builds the command to control the mBot motors according to the protocol."""
+    global command_index
+    index = command_index % 256  # Keep index within 0-255
+    command_index += 1
+    action = MOTOR_MOVE_COMMAND  # Use specific command for motor control
+
+    payload = bytearray()
+    payload.append(0x01) # Motor ID 1
+    payload.extend(struct.pack("<h", right_speed)) # Motor 1 speed
+    payload.append(0x02) # Motor ID 2
+    payload.extend(struct.pack("<h", left_speed))  # Motor 2 speed
+
+    length = 1 + len(payload)  # Length of command + data
+
+    command = bytearray(PREFIX)
+    command.append(length)
+    command.append(index)
+    command.append(action)
+    command.extend(payload)
+    command.extend(SUFFIX)
+    logging.debug(f"Built command: {command.hex()}")
+    return command
 
 async def send_command(client: BleakClient, command: bytearray):
-        """Sends the command to the mBot over BLE"""
-        if client and client.is_connected:
-            try:
-                # Hier musst du die richtige Characteristic auswählen
-                # für das Schreiben von Daten.
-                # Prüfe die UUIDs der Services und Characteristics mit `connect_and_interact`
-                # aus dem vorherigen Beispiel.
-                for service in client.services:
-                    for characteristic in service.characteristics:
-                         if "write" in characteristic.properties and  characteristic.uuid.startswith("0000ffe1"):
-                            await client.write_gatt_char(characteristic, command, response=False)
-                            return
-                print("No write characteristic found")
-
-            except Exception as e:
-                print(f"Error sending command: {e}")
+    """Sends the command to the mBot over BLE."""
+    try:
+        if client.is_connected:
+            write_uuid = "0000ffe3-0000-1000-8000-00805f9b34fb"
+            await client.write_gatt_char(write_uuid, command, response=False)
+            logging.debug(f"Sent command: {command.hex()}")
         else:
-            print("Not connected.")
-
+            logging.error("Client is not connected.")
+    except Exception as e:
+        logging.error(f"Failed to send command: {e}")
 
 async def connect_and_control(device: BLEDevice):
-    """Connects to the specified device and controls it via keyboard input."""
+    """Connects to the device and allows keyboard-based control."""
     if not device:
-        print("No Makeblock device found to connect to.")
-        return
+        logging.error("No Makeblock device found.")
+        return False
 
-    print(f"Connecting to {device.name} with address {device.address}...")
     try:
         async with BleakClient(device) as client:
-            print(f"Connected: {client.is_connected}")
-            print("Use 'w', 'a', 's', 'd' to control the mBot. Press 'q' to quit.")
+            logging.info(f"Connected to {device.name} ({device.address}).")
+            logging.info("Use 'w', 'a', 's', 'd' to control the mBot. Press 'q' to quit.")
+
             while True:
                 char = get_char()
-                left_speed = 0
-                right_speed = 0
+                left_speed, right_speed = process_key_input(char)
+                if char == 'q':
+                    break
 
-                if char == 'w':
-                    left_speed = 180
-                    right_speed = 180
-                elif char == 's':
-                    left_speed = -180
-                    right_speed = -180
-                elif char == 'a':
-                     left_speed = -180
-                     right_speed = 180
-                elif char == 'd':
-                    left_speed = 180
-                    right_speed = -180
-                elif char == 'q':
-                    break # Beende die Steuerung
-
-                if char == 'w' and get_char() == 'a':
-                  left_speed = 80
-                  right_speed = 180
-                elif char == 'w' and get_char() == 'd':
-                  left_speed = 180
-                  right_speed = 80
-                elif char == 's' and get_char() == 'a':
-                  left_speed = -80
-                  right_speed = -180
-                elif char == 's' and get_char() == 'd':
-                  left_speed = -180
-                  right_speed = -80
-
-
-                command = build_joystick_command(left_speed,right_speed)
+                command = build_joystick_command(left_speed, right_speed)
                 await send_command(client, command)
-            # Stop motors after leaving control loop
-            stop_command = build_joystick_command(0,0)
-            await send_command(client, stop_command)
-            print("Disconnecting...")
+                await asyncio.sleep(0.1) # ചെറിയ കാലതാമസം ചേർക്കുന്നു
+
+            # Stop motors before disconnecting
+            await send_command(client, build_joystick_command(0, 0))
+            logging.info("Disconnected.")
+            return True
 
     except Exception as e:
-        print(f"Error during connection or interaction: {e}")
+        logging.error(f"Connection error: {e}")
+        return False
 
+def process_key_input(char):
+    """Processes keyboard input and returns motor speeds."""
+    speed = 200  # Adjust speed as needed
+    if char == 'w':
+        return speed, speed
+    elif char == 's':
+        return -speed, -speed
+    elif char == 'a':
+        return -speed, speed
+    elif char == 'd':
+        return speed, -speed
+    return 0, 0
 
 async def main():
-    global known_device_address
+    device_address = None
+
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, 'r') as f:
+            config = yaml.safe_load(f)
+            device_address = config.get('device_address')
+            logging.info(f"Loaded device address from config: {device_address}")
 
     try:
-        if known_device_address:
-            try:
-                device = await BleakScanner.find_device(known_device_address)
-                if device:
-                    print(f"Attempting direct connection to known device at address: {known_device_address}")
-                    await connect_and_control(device)
-                    return
-                else:
-                  print(f"Device at {known_device_address} not found. Initiating scan...")
-                  known_device_address = None
-            except Exception as e:
-              print(f"Error during direct connection attempt: {e}. Initiating scan...")
-              known_device_address = None
+        device = None
+        if device_address:
+            device = await BleakScanner.find_device_by_address(device_address, timeout=5.0)
+            if not device:
+                logging.warning(f"Device with address {device_address} not found. Initiating scan...")
 
-        makeblock_device = await scan_makeblock_devices()
-        if makeblock_device:
-             known_device_address = makeblock_device.address
-             await connect_and_control(makeblock_device)
+        if not device:
+            device = await scan_makeblock_devices()
+
+        if device:
+            with open(CONFIG_FILE, 'w') as f:
+                yaml.dump({'device_address': str(device.address)}, f, default_flow_style=False)
+                logging.info(f"Saved device address to config file: {device.address}")
+
+            await connect_and_control(device)
 
     except KeyboardInterrupt:
-        print("\nScanning and interaction stopped by user.")
-
+        logging.info("Interrupted by user.")
     except Exception as e:
-        print(f"An error occurred: {e}")
-
+        logging.error(f"Error: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())
